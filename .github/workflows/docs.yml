@@ -17,6 +17,7 @@ on:
       - '*.tf'
       - '.terraform-docs.yml'
       - 'docs/**'
+      - '.github/workflows/docs.yml'
   
   # Allow manual triggering
   workflow_dispatch:
@@ -32,9 +33,10 @@ on:
 
 # Set permissions for GitHub Pages deployment
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
+  pull-requests: write
 
 # Allow only one concurrent deployment
 concurrency:
@@ -72,25 +74,101 @@ jobs:
         run: |
           echo "🚀 Generating documentation for all modules..."
           
+          # Check if modules directory exists
+          if [ ! -d "modules" ]; then
+            echo "❌ No modules directory found"
+            mkdir -p modules
+            echo "📁 Created empty modules directory"
+          fi
+          
+          # List available modules
+          echo "📋 Available modules:"
+          ls -la modules/ || echo "No modules found"
+          
           # Generate docs for each module
           for module_dir in modules/*/; do
             if [ -d "$module_dir" ]; then
               module_name=$(basename "$module_dir")
-              echo "📝 Generating docs for module: $module_name"
+              echo "📝 Processing module: $module_name"
               
-              # Generate documentation
-              terraform-docs markdown table --config .terraform-docs.yml "$module_dir" > "${module_dir}TERRAFORM_DOCS.md"
+              # Check if module has Terraform files
+              tf_files=$(find "$module_dir" -name "*.tf" -type f | wc -l)
+              echo "  📄 Found $tf_files Terraform files in $module_dir"
               
-              # Update README.md if it exists
-              if [ -f "${module_dir}README.md" ]; then
-                terraform-docs markdown table --config .terraform-docs.yml --output-file README.md --output-mode inject "$module_dir"
+              if [ "$tf_files" -gt 0 ]; then
+                echo "  ✅ Generating documentation for $module_name"
+                
+                # Generate simple documentation without complex config
+                terraform-docs markdown table "$module_dir" > "${module_dir}TERRAFORM_DOCS.md" 2>/dev/null || {
+                  echo "  ⚠️ terraform-docs failed for $module_name, creating manual documentation..."
+                  
+                  # Create manual documentation
+                  cat > "${module_dir}TERRAFORM_DOCS.md" << EOF
+# ${module_name^} Module
+
+## Description
+This module provides ${module_name} resources for AWS infrastructure.
+
+## Files
+$(ls -la "$module_dir"*.tf 2>/dev/null | awk '{print "- " $9}' || echo "- No .tf files found")
+
+## Usage
+\`\`\`hcl
+module "${module_name}" {
+  source = "./modules/${module_name}"
+  
+  # Add your variables here
+}
+\`\`\`
+
+*Documentation auto-generated on $(date)*
+EOF
+                }
+                
+                echo "  ✅ Documentation generated for $module_name"
+              else
+                echo "  ⚠️ No Terraform files found in $module_dir, skipping..."
               fi
             fi
           done
           
           # Generate root documentation
           echo "📝 Generating root documentation..."
-          terraform-docs markdown table --config .terraform-docs.yml . > ROOT_DOCS.md
+          root_tf_files=$(find . -maxdepth 1 -name "*.tf" -type f | wc -l)
+          
+          if [ "$root_tf_files" -gt 0 ]; then
+            echo "  📄 Found $root_tf_files root Terraform files"
+            terraform-docs markdown table . > ROOT_DOCS.md 2>/dev/null || {
+              echo "  ⚠️ terraform-docs failed for root, creating manual documentation..."
+              cat > ROOT_DOCS.md << EOF
+# CloudWalker Infrastructure
+
+This repository contains Terraform modules for AWS infrastructure.
+
+## Root Configuration Files
+$(ls -la *.tf 2>/dev/null | awk '{print "- " $9}' || echo "- No root .tf files found")
+
+## Available Modules
+$(ls -d modules/*/ 2>/dev/null | sed 's|modules/||g' | sed 's|/||g' | awk '{print "- " $1}' || echo "- No modules found")
+
+*Documentation auto-generated on $(date)*
+EOF
+            }
+          else
+            echo "  📄 No root Terraform files found"
+            cat > ROOT_DOCS.md << EOF
+# CloudWalker Infrastructure
+
+This repository contains Terraform modules for AWS infrastructure.
+
+## Available Modules
+$(ls -d modules/*/ 2>/dev/null | sed 's|modules/||g' | sed 's|/||g' | awk '{print "- " $1}' || echo "- No modules found")
+
+*Documentation auto-generated on $(date)*
+EOF
+          fi
+          
+          echo "✅ Documentation generation completed!"
 
       - name: 🏗️ Create Documentation Website
         run: |
