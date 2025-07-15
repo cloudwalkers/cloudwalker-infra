@@ -1,0 +1,282 @@
+# ============================================================================
+# TERRAFORM-DOCS CONFIGURATION
+# ============================================================================
+# Configuration for generating documentation for Terraform modules
+# Supports recursive documentation generation for all modules
+# ============================================================================
+
+# Document formatter (markdown, asciidoc, json, table, xml, yaml)
+formatter: "markdown"
+
+# Version constraint for terraform-docs
+version: ">= 0.16"
+
+# Header and footer content sources
+header-from: "README.md"
+footer-from: ""
+
+# Recursive documentation generation
+recursive:
+  enabled: true
+  path: modules
+  include-main: true
+
+# Content sections to include/exclude
+sections:
+  hide: 
+    - header
+    - footer
+  show:
+    - requirements
+    - providers
+    - modules
+    - resources
+    - inputs
+    - outputs
+
+# Custom content template
+content: |-
+  ## Usage
+
+  Basic usage of this module:
+
+  ```hcl
+  {{ if .Module.Source -}}
+  module "{{ .Module.Name }}" {
+    source = "{{ .Module.Source }}"
+    {{ range .Module.Inputs -}}
+    {{ if .Required -}}
+    {{ .Name }} = {{ .Type | type }}
+    {{ end -}}
+    {{ end -}}
+  }
+  {{ else -}}
+  # See examples/ directory for usage examples
+  {{ end -}}
+  ```
+
+  {{ .Requirements }}
+  {{ .Providers }}
+  {{ .Modules }}
+  {{ .Resources }}
+  {{ .Inputs }}
+  {{ .Outputs }}
+
+# Output configuration
+output:
+  file: "README.md"
+  mode: inject
+  template: |-
+    <!-- BEGIN_TF_DOCS -->
+    {{ .Content }}
+    <!-- END_TF_DOCS -->
+
+# Output values configuration
+output-values:
+  enabled: true
+  from: "outputs.tf"
+
+# Sorting configuration
+sort:
+  enabled: true
+  by: name
+
+# General settings
+settings:
+  # Enable anchor links in markdown
+  anchor: true
+  
+  # Enable colored output
+  color: true
+  
+  # Show default values
+  default: true
+  
+  # Show descriptions
+  description: true
+  
+  # Escape special characters
+  escape: true
+  
+  # Hide empty sections
+  hide-empty: true
+  
+  # Enable HTML in markdown
+  html: true
+  
+  # Indentation level
+  indent: 2
+  
+  # Include lockfile information
+  lockfile: true
+  
+  # Read comments from Terraform files
+  read-comments: true
+  
+  # Show required/optional indicators
+  required: true
+  
+  # Show sensitive value indicators
+  sensitive: true
+  
+  # Show variable types
+  type: true
+  
+  # Word wrap for long lines
+  wrap: 120
+
+# Module-specific configurations
+module-configs:
+  # VPC Module
+  modules/vpc:
+    header-from: "modules/vpc/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+    
+  # EC2 Module  
+  modules/ec2:
+    header-from: "modules/ec2/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # ECS Module
+  modules/ecs:
+    header-from: "modules/ecs/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # EKS Module
+  modules/eks:
+    header-from: "modules/eks/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # IAM Module
+  modules/iam:
+    header-from: "modules/iam/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # S3 Module
+  modules/s3:
+    header-from: "modules/s3/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # EFS Module
+  modules/efs:
+    header-from: "modules/efs/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # SNS Module
+  modules/sns:
+    header-from: "modules/sns/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # SQS Module
+  modules/sqs:
+    header-from: "modules/sqs/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # Route53 Module
+  modules/route53:
+    header-from: "modules/route53/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # VPC Endpoints Module
+  modules/vpc-endpoints:
+    header-from: "modules/vpc-endpoints/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # VPC Transit Gateway Module
+  modules/vpc-transit-gw:
+    header-from: "modules/vpc-transit-gw/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+        
+  # ELB Module
+  modules/elb:
+    header-from: "modules/elb/README.md"
+    sections:
+      show:
+        - requirements
+        - providers
+        - inputs
+        - outputs
+        - resources
+
+# Validation rules
+validation:
+  # Require descriptions for all variables
+  required-inputs-description: true
+  
+  # Require descriptions for all outputs  
+  required-outputs-description: true
+  
+  # Validate variable types
+  validate-types: true

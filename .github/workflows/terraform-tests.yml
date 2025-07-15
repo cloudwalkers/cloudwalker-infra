@@ -1,0 +1,215 @@
+name: Terraform Module Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  TF_VERSION: "1.6.0"
+  GO_VERSION: "1.21"
+
+jobs:
+  # Fast tests that don't require AWS resources
+  validate:
+    name: Validation Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      working-directory: test
+      run: go mod download
+
+    - name: Check Terraform formatting
+      run: terraform fmt -check -recursive -diff
+
+    - name: Run validation tests
+      working-directory: test
+      run: go test -v -run TestTerraformValidate ./...
+
+    - name: Run Terraform plan tests
+      working-directory: test
+      run: go test -v -run TestTerraformPlan ./...
+
+  # Static analysis and security tests
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    needs: validate
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install TFLint
+      run: |
+        curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+        sudo mv tflint /usr/local/bin/
+
+    - name: Install TFSec
+      run: |
+        go install github.com/aquasecurity/tfsec/cmd/tfsec@latest
+
+    - name: Run static analysis tests
+      working-directory: test
+      run: go test -v -run TestStaticAnalysis ./...
+
+  # Integration tests that create real AWS resources
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [validate, static-analysis]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    strategy:
+      matrix:
+        module: [vpc, ec2, elb]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Install dependencies
+      working-directory: test
+      run: go mod download
+
+    - name: Run integration tests
+      working-directory: test
+      run: go test -v -timeout 30m -run Test${{ matrix.module }} ./...
+      env:
+        AWS_DEFAULT_REGION: us-west-2
+
+  # Security scanning
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Checkov
+      id: checkov
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: .
+        framework: terraform
+        output_format: sarif
+        output_file_path: reports/results.sarif
+        
+    - name: Upload Checkov results to GitHub Advanced Security
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: reports/results.sarif
+
+  # Documentation check
+  docs:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup terraform-docs
+      run: |
+        curl -sSLo ./terraform-docs.tar.gz https://terraform-docs.io/dl/v0.16.0/terraform-docs-v0.16.0-$(uname)-amd64.tar.gz
+        tar -xzf terraform-docs.tar.gz
+        chmod +x terraform-docs
+        sudo mv terraform-docs /usr/local/bin/
+
+    - name: Check if documentation is up to date
+      run: |
+        for module in modules/*/; do
+          echo "Checking documentation for $module"
+          terraform-docs markdown table --output-file README.md --output-mode inject $module
+          if ! git diff --exit-code $module/README.md; then
+            echo "Documentation for $module is out of date"
+            exit 1
+          fi
+        done
+
+  # Cost estimation (optional)
+  cost-estimation:
+    name: Cost Estimation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Setup Infracost
+      uses: infracost/actions/setup@v2
+      with:
+        api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+    - name: Generate Infracost cost estimate
+      run: |
+        for example in examples/*/; do
+          if [ -f "$example/main.tf" ]; then
+            echo "Generating cost estimate for $example"
+            cd $example
+            terraform init
+            infracost breakdown --path . --format json --out-file /tmp/infracost-$(basename $example).json
+            cd ../..
+          fi
+        done
+
+    - name: Post Infracost comment
+      run: |
+        infracost comment github --path="/tmp/infracost-*.json" \
+          --repo=$GITHUB_REPOSITORY \
+          --github-token=${{ github.token }} \
+          --pull-request=${{ github.event.pull_request.number }} \
+          --behavior=update

@@ -1,5 +1,5 @@
-module "compute" {
-  source             = "../../../modules/compute"
+module "ec2" {
+  source             = "../../modules/ec2"
   providers          = { aws = aws }
 
   vpc_id             = var.vpc_id
@@ -20,7 +20,7 @@ module "compute" {
 # This module creates a VPC with public and private subnets, security groups, and route tables.
 # It also creates an Internet Gateway and a NAT Gateway for outbound internet access from private subnets.
 module "vpc" {
-  source                = "../../../modules/vpc"
+  source                = "../../modules/vpc"
   providers             = { aws = aws }
 
   vpc_cidr_block        = var.vpc_cidr_block

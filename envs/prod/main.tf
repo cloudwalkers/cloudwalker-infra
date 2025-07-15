@@ -1,5 +1,5 @@
-module "ec2_alb_asg_r53" {
-  source             = "../../modules/compute"
+module "ec2" {
+  source             = "../../modules/ec2"
   providers          = { aws = aws }
 
   vpc_id             = var.vpc_id
