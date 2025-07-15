@@ -1,0 +1,375 @@
+# ============================================================================
+# DOCUMENTATION GENERATION AND GITHUB PAGES DEPLOYMENT
+# ============================================================================
+# This workflow automatically generates Terraform documentation using
+# terraform-docs and deploys it to GitHub Pages
+# ============================================================================
+
+name: 📚 Generate and Deploy Documentation
+
+on:
+  # Trigger on pushes to main branch
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'modules/**/*.tf'
+      - 'modules/**/*.md'
+      - '*.tf'
+      - '.terraform-docs.yml'
+      - 'docs/**'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+
+  # Trigger on pull requests for preview
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'modules/**/*.tf'
+      - 'modules/**/*.md'
+      - '*.tf'
+      - '.terraform-docs.yml'
+
+# Set permissions for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================================
+  # GENERATE DOCUMENTATION
+  # ============================================================================
+  generate-docs:
+    name: 🔧 Generate Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ~1.0
+
+      - name: 📋 Install terraform-docs
+        run: |
+          curl -sSLo ./terraform-docs.tar.gz https://terraform-docs.io/dl/v0.17.0/terraform-docs-v0.17.0-$(uname)-amd64.tar.gz
+          tar -xzf terraform-docs.tar.gz
+          chmod +x terraform-docs
+          sudo mv terraform-docs /usr/local/bin/terraform-docs
+          terraform-docs --version
+
+      - name: 📖 Generate Module Documentation
+        run: |
+          echo "🚀 Generating documentation for all modules..."
+          
+          # Generate docs for each module
+          for module_dir in modules/*/; do
+            if [ -d "$module_dir" ]; then
+              module_name=$(basename "$module_dir")
+              echo "📝 Generating docs for module: $module_name"
+              
+              # Generate documentation
+              terraform-docs markdown table --config .terraform-docs.yml "$module_dir" > "${module_dir}TERRAFORM_DOCS.md"
+              
+              # Update README.md if it exists
+              if [ -f "${module_dir}README.md" ]; then
+                terraform-docs markdown table --config .terraform-docs.yml --output-file README.md --output-mode inject "$module_dir"
+              fi
+            fi
+          done
+          
+          # Generate root documentation
+          echo "📝 Generating root documentation..."
+          terraform-docs markdown table --config .terraform-docs.yml . > ROOT_DOCS.md
+
+      - name: 🏗️ Create Documentation Website
+        run: |
+          # Create docs directory structure
+          mkdir -p docs
+          mkdir -p docs/modules
+          mkdir -p docs/examples
+          mkdir -p docs/assets/css
+          mkdir -p docs/assets/js
+          
+          # Copy generated documentation
+          cp ROOT_DOCS.md docs/index.md
+          
+          # Copy module documentation
+          for module_dir in modules/*/; do
+            if [ -d "$module_dir" ]; then
+              module_name=$(basename "$module_dir")
+              if [ -f "${module_dir}README.md" ]; then
+                cp "${module_dir}README.md" "docs/modules/${module_name}.md"
+              elif [ -f "${module_dir}TERRAFORM_DOCS.md" ]; then
+                cp "${module_dir}TERRAFORM_DOCS.md" "docs/modules/${module_name}.md"
+              fi
+              
+              # Copy examples if they exist
+              if [ -f "${module_dir}examples.tf" ]; then
+                cp "${module_dir}examples.tf" "docs/examples/${module_name}-examples.tf"
+              fi
+            fi
+          done
+          
+          # Copy additional documentation files
+          if [ -f "README.md" ]; then
+            cp README.md docs/overview.md
+          fi
+          
+          if [ -f "TESTING.md" ]; then
+            cp TESTING.md docs/testing.md
+          fi
+          
+          if [ -f "IAM_INTEGRATION.md" ]; then
+            cp IAM_INTEGRATION.md docs/iam-integration.md
+          fi
+
+      - name: 📄 Generate Navigation and Index
+        run: |
+          # Create _config.yml for Jekyll
+          cat > docs/_config.yml << 'EOF'
+          title: "CloudWalker Infrastructure Documentation"
+          description: "Comprehensive Terraform modules for AWS infrastructure"
+          baseurl: "/cloudwalker-infra"
+          url: "https://your-username.github.io"
+          
+          # Theme
+          theme: minima
+          
+          # Plugins
+          plugins:
+            - jekyll-feed
+            - jekyll-sitemap
+            - jekyll-seo-tag
+          
+          # Navigation
+          header_pages:
+            - overview.md
+            - modules.md
+            - examples.md
+            - testing.md
+            - iam-integration.md
+          
+          # Markdown settings
+          markdown: kramdown
+          highlighter: rouge
+          kramdown:
+            input: GFM
+            syntax_highlighter: rouge
+          EOF
+          
+          # Create main index page
+          cat > docs/index.md << 'EOF'
+          ---
+          layout: home
+          title: Home
+          ---
+          
+          # CloudWalker Infrastructure Documentation
+          
+          Welcome to the comprehensive documentation for CloudWalker Infrastructure Terraform modules.
+          
+          ## 🏗️ Architecture Overview
+          
+          This repository contains production-ready Terraform modules for AWS infrastructure:
+          
+          - **Networking**: VPC, Subnets, Transit Gateway, VPC Endpoints
+          - **Compute**: EC2, ECS, EKS with Auto Scaling
+          - **Storage**: S3, EFS with lifecycle management
+          - **Messaging**: SNS, SQS with dead letter queues
+          - **DNS**: Route53 with health checks and routing policies
+          - **Security**: IAM with comprehensive role management
+          - **Load Balancing**: ALB, NLB with SSL termination
+          
+          ## 📚 Quick Navigation
+          
+          - [📋 Module Documentation](modules.html) - Detailed module references
+          - [💡 Usage Examples](examples.html) - Real-world implementation examples
+          - [🧪 Testing Guide](testing.html) - How to test the infrastructure
+          - [🔐 IAM Integration](iam-integration.html) - Security and access management
+          
+          ## 🚀 Getting Started
+          
+          ```hcl
+          # Example: Basic VPC setup
+          module "vpc" {
+            source = "./modules/vpc"
+            
+            vpc_cidr                = "10.0.0.0/16"
+            availability_zones      = ["us-west-2a", "us-west-2b", "us-west-2c"]
+            public_subnet_cidrs     = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+            private_subnet_cidrs    = ["10.0.11.0/24", "10.0.12.0/24", "10.0.13.0/24"]
+            
+            environment = "prod"
+            
+            tags = {
+              Project = "CloudWalker"
+            }
+          }
+          ```
+          
+          ## 📊 Module Status
+          
+          | Module | Status | Version | Description |
+          |--------|--------|---------|-------------|
+          | VPC | ✅ Stable | 1.0.0 | Virtual Private Cloud with subnets |
+          | EC2 | ✅ Stable | 1.0.0 | Auto Scaling Groups and Launch Templates |
+          | ECS | ✅ Stable | 1.0.0 | Container orchestration |
+          | EKS | ✅ Stable | 1.0.0 | Kubernetes clusters |
+          | S3 | ✅ Stable | 1.0.0 | Object storage with lifecycle |
+          | EFS | ✅ Stable | 1.0.0 | Elastic File System |
+          | SNS | ✅ Stable | 1.0.0 | Simple Notification Service |
+          | SQS | ✅ Stable | 1.0.0 | Simple Queue Service |
+          | Route53 | ✅ Stable | 1.0.0 | DNS management |
+          | IAM | ✅ Stable | 1.0.0 | Identity and Access Management |
+          
+          EOF
+          
+          # Create modules index page
+          cat > docs/modules.md << 'EOF'
+          ---
+          layout: page
+          title: Module Documentation
+          permalink: /modules/
+          ---
+          
+          # Terraform Module Documentation
+          
+          Comprehensive documentation for all available Terraform modules.
+          
+          ## 🌐 Networking Modules
+          
+          - [**VPC**](modules/vpc.html) - Virtual Private Cloud with subnets, gateways, and routing
+          - [**VPC Endpoints**](modules/vpc-endpoints.html) - Private connectivity to AWS services
+          - [**VPC Transit Gateway**](modules/vpc-transit-gw.html) - Scalable network connectivity hub
+          
+          ## 💻 Compute Modules
+          
+          - [**EC2**](modules/ec2.html) - Auto Scaling Groups with launch templates
+          - [**ECS**](modules/ecs.html) - Container orchestration platform
+          - [**EKS**](modules/eks.html) - Managed Kubernetes clusters
+          
+          ## 💾 Storage Modules
+          
+          - [**S3**](modules/s3.html) - Object storage with lifecycle management
+          - [**EFS**](modules/efs.html) - Elastic File System for shared storage
+          
+          ## 📨 Messaging Modules
+          
+          - [**SNS**](modules/sns.html) - Simple Notification Service
+          - [**SQS**](modules/sqs.html) - Simple Queue Service
+          
+          ## 🌍 DNS and Load Balancing
+          
+          - [**Route53**](modules/route53.html) - DNS management with health checks
+          - [**ELB**](modules/elb.html) - Elastic Load Balancing
+          
+          ## 🔐 Security Modules
+          
+          - [**IAM**](modules/iam.html) - Identity and Access Management
+          
+          EOF
+          
+          # Create examples index page
+          cat > docs/examples.md << 'EOF'
+          ---
+          layout: page
+          title: Usage Examples
+          permalink: /examples/
+          ---
+          
+          # Usage Examples
+          
+          Real-world examples of how to use the Terraform modules.
+          
+          ## 📁 Example Files
+          
+          EOF
+          
+          # Add links to example files
+          for example_file in docs/examples/*.tf; do
+            if [ -f "$example_file" ]; then
+              filename=$(basename "$example_file")
+              module_name=$(echo "$filename" | sed 's/-examples\.tf$//')
+              echo "- [**${module_name^} Examples**](examples/${filename})" >> docs/examples.md
+            fi
+          done
+
+      - name: 📤 Upload Documentation Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs
+
+  # ============================================================================
+  # DEPLOY TO GITHUB PAGES
+  # ============================================================================
+  deploy-pages:
+    name: 🚀 Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: generate-docs
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ============================================================================
+  # COMMIT UPDATED DOCUMENTATION
+  # ============================================================================
+  commit-docs:
+    name: 💾 Commit Updated Documentation
+    runs-on: ubuntu-latest
+    needs: generate-docs
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📋 Install terraform-docs
+        run: |
+          curl -sSLo ./terraform-docs.tar.gz https://terraform-docs.io/dl/v0.17.0/terraform-docs-v0.17.0-$(uname)-amd64.tar.gz
+          tar -xzf terraform-docs.tar.gz
+          chmod +x terraform-docs
+          sudo mv terraform-docs /usr/local/bin/terraform-docs
+
+      - name: 📖 Update Module READMEs
+        run: |
+          # Update README files in modules
+          for module_dir in modules/*/; do
+            if [ -d "$module_dir" ] && [ -f "${module_dir}README.md" ]; then
+              module_name=$(basename "$module_dir")
+              echo "📝 Updating README for module: $module_name"
+              terraform-docs markdown table --config .terraform-docs.yml --output-file README.md --output-mode inject "$module_dir"
+            fi
+          done
+
+      - name: 💾 Commit Changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if git diff --quiet; then
+            echo "📋 No documentation changes to commit"
+          else
+            git add modules/*/README.md
+            git commit -m "📚 Update module documentation [skip ci]" || exit 0
+            git push
+          fi
